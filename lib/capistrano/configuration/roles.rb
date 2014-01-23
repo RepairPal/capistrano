@@ -63,10 +63,20 @@ module Capistrano
       # the roles as the remaining parameters:
       #
       #   server "master.example.com", :web, :app
+      #
+      # Also, you can specify additional information
+      # (in the form of a Hash) which can be used to more uniquely specify the
+      # subset of servers specified by this specific definition:
+      #
+      #   server "master.example.com", :db, :primary => true
       def server(host, *roles)
         options = roles.last.is_a?(Hash) ? roles.pop : {}
         raise ArgumentError, "you must associate a server with at least one role" if roles.empty?
         roles.each { |name| role(name, host, options) }
+      end
+
+      def role_names_for_host(host)
+        roles.map {|role_name, role| role_name if role.include?(host) }.compact || []
       end
     end
   end

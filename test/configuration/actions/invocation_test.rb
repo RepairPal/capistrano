@@ -7,8 +7,9 @@ class ConfigurationActionsInvocationTest < Test::Unit::TestCase
     attr_reader :options
     attr_accessor :debug
     attr_accessor :dry_run
-		attr_accessor :preserve_roles
+    attr_accessor :preserve_roles
     attr_accessor :servers
+    attr_accessor :roles
 
     def initialize
       @options = {}
@@ -25,6 +26,10 @@ class ConfigurationActionsInvocationTest < Test::Unit::TestCase
 
     def fetch(*args)
       @options.fetch(*args)
+    end
+
+    def filter_servers(options = {})
+      [nil, @servers]
     end
 
     def execute_on_servers(options = {})
@@ -45,7 +50,7 @@ class ConfigurationActionsInvocationTest < Test::Unit::TestCase
   end
 
   def test_run_options_should_be_passed_to_execute_on_servers
-    @config.expects(:execute_on_servers).with(:foo => "bar")
+    @config.expects(:execute_on_servers).with(:foo => "bar", :eof => true)
     @config.run "ls", :foo => "bar"
   end
 
@@ -59,7 +64,7 @@ class ConfigurationActionsInvocationTest < Test::Unit::TestCase
     config = make_config
     config.dry_run = true
     config.servers = %w[ foo ]
-    config.expects(:sessions).returns({ 'foo-server' => 'bar' })
+    config.expects(:execute_on_servers).never
     ::Capistrano::Transfer.expects(:process).never
     config.put "foo", "bar", :mode => 0644
   end
@@ -113,6 +118,11 @@ class ConfigurationActionsInvocationTest < Test::Unit::TestCase
   def test_sudo_should_default_to_sudo
     @config.expects(:run).with("sudo -p 'sudo password: ' ls", {})
     @config.sudo "ls"
+  end
+
+  def test_sudo_should_keep_input_stream_open
+    @config.expects(:execute_on_servers).with(:foo => "bar")
+    @config.sudo "ls", :foo => "bar"
   end
 
   def test_sudo_should_use_sudo_variable_definition
@@ -203,7 +213,7 @@ class ConfigurationActionsInvocationTest < Test::Unit::TestCase
     a = mock("channel", :called => true)
     b = mock("stream", :called => true)
     c = mock("data", :called => true)
-  
+
     callback[a, b, c]
   end
 
@@ -215,6 +225,37 @@ class ConfigurationActionsInvocationTest < Test::Unit::TestCase
   def test_invoke_command_should_delegate_to_method_identified_by_via
     @config.expects(:foobar).with("ls", :once => true)
     @config.invoke_command("ls", :once => true, :via => :foobar)
+  end
+
+  def test_parallel_command_execution_with_no_match
+    assert_block("should not raise argument error") do
+      begin
+        @config.parallel do |session|
+          session.when("in?(:app)", "ls") {|ch,stream,data| puts "noop"}
+          session.when("in?(:db)", "pwd") {|ch,stream,data| puts "noop"}
+        end
+        true
+      rescue
+        false
+      end
+    end
+  end
+
+  def test_parallel_command_execution_with_matching_servers
+    @config.expects(:execute_on_servers)
+    assert_block("should not raise Argument error") do
+      begin
+        @config.servers = [:app, :db]
+        @config.roles = {:app => [:app], :db => [:db] }
+        @config.parallel do |session|
+          session.when("in?(:app)", "ls") {|ch,stream,data| puts "noop"}
+          session.when("in?(:db)", "pwd") {|ch,stream,data| puts "noop"}
+        end
+        true
+      rescue
+        false
+      end
+    end
   end
 
   private

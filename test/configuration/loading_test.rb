@@ -1,4 +1,4 @@
-require "utils"
+require 'utils'
 require 'capistrano/configuration/loading'
 
 class ConfigurationLoadingTest < Test::Unit::TestCase
@@ -106,7 +106,7 @@ class ConfigurationLoadingTest < Test::Unit::TestCase
 
   def test_require_from_config_should_load_file_in_config_scope
     assert_nothing_raised do
-      @config.require "#{File.dirname(__FILE__)}/../fixtures/custom"
+      @config.require "#{File.expand_path(File.dirname(__FILE__))}/../fixtures/custom"
     end
     assert_equal :custom, @config.ping
   end
@@ -118,15 +118,31 @@ class ConfigurationLoadingTest < Test::Unit::TestCase
   end
 
   def test_require_from_config_should_return_false_when_called_a_second_time_with_same_args
-    assert @config.require("#{File.dirname(__FILE__)}/../fixtures/custom")
-    assert_equal false, @config.require("#{File.dirname(__FILE__)}/../fixtures/custom")
+    assert @config.require("#{File.expand_path(File.dirname(__FILE__))}/../fixtures/custom")
+    assert_equal false, @config.require("#{File.expand_path(File.dirname(__FILE__))}/../fixtures/custom")
   end
-  
+
   def test_require_in_multiple_instances_should_load_recipes_in_each_instance
     config2 = MockConfig.new
-    @config.require "#{File.dirname(__FILE__)}/../fixtures/custom"
-    config2.require "#{File.dirname(__FILE__)}/../fixtures/custom"
+    @config.require "#{File.expand_path(File.dirname(__FILE__))}/../fixtures/custom"
+    config2.require "#{File.expand_path(File.dirname(__FILE__))}/../fixtures/custom"
     assert_equal :custom, @config.ping
     assert_equal :custom, config2.ping
+  end
+
+  def test_file_in_load_path_returns_true_when_file_is_in_load_path
+    File.stubs(:file?).returns(false)
+    File.stubs(:file?).with("custom/path/for/file.rb").returns(true)
+
+    @config.load_paths << "custom/path/for"
+    assert_equal true, @config.file_in_load_path?("file")
+  end
+
+  def test_file_in_load_path_returns_false_when_file_is_not_in_load_path
+    File.stubs(:file?).returns(false)
+    File.stubs(:file?).with("custom/path/for/file.rb").returns(false)
+
+    @config.load_paths << "custom/path/for"
+    assert_equal false, @config.file_in_load_path?("file")
   end
 end

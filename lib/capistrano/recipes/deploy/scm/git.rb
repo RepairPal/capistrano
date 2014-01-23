@@ -134,6 +134,9 @@ module Capistrano
           remote = origin
 
           args = []
+
+          # Add an option for the branch name so :git_shallow_clone works with branches
+          args << "-b #{variable(:branch)}" unless variable(:branch).nil? || variable(:branch) == revision
           args << "-o #{remote}" unless remote == 'origin'
           if depth = variable(:git_shallow_clone)
             args << "--depth #{depth}"
@@ -148,10 +151,15 @@ module Capistrano
           if variable(:git_enable_submodules)
             execute << "#{git} submodule #{verbose} init"
             execute << "#{git} submodule #{verbose} sync"
-            execute << "#{git} submodule #{verbose} update --init --recursive"
+            if false == variable(:git_submodules_recursive)
+              execute << "#{git} submodule #{verbose} update --init"
+            else
+              execute << %Q(export GIT_RECURSIVE=$([ ! "`#{git} --version`" \\< "git version 1.6.5" ] && echo --recursive))
+              execute << "#{git} submodule #{verbose} update --init $GIT_RECURSIVE"
+            end
           end
 
-          execute.join(" && ").compact
+          execute.compact.join(" && ").gsub(/\s+/, ' ')
         end
 
         # An expensive export. Performs a checkout as above, then
@@ -185,9 +193,13 @@ module Capistrano
 
           if variable(:git_enable_submodules)
             execute << "#{git} submodule #{verbose} init"
-            execute << "for mod in `#{git} submodule status | awk '{ print $2 }'`; do #{git} config -f .git/config submodule.${mod}.url `#{git} config -f .gitmodules --get submodule.${mod}.url` && echo Synced $mod; done"
             execute << "#{git} submodule #{verbose} sync"
-            execute << "#{git} submodule #{verbose} update --init --recursive"
+            if false == variable(:git_submodules_recursive)
+              execute << "#{git} submodule #{verbose} update --init"
+            else
+              execute << %Q(export GIT_RECURSIVE=$([ ! "`#{git} --version`" \\< "git version 1.6.5" ] && echo --recursive))
+              execute << "#{git} submodule #{verbose} update --init $GIT_RECURSIVE"
+            end
           end
 
           # Make sure there's nothing else lying around in the repository (for
@@ -224,6 +236,12 @@ module Capistrano
               break
             end
           end
+          return newrev if newrev =~ /^[0-9a-f]{40}$/
+
+          # If sha is not found on remote, try expanding from local repository
+          command = scm('rev-parse --revs-only', origin + '/' + revision)
+          newrev = yield(command).to_s.strip
+
           raise "Unable to resolve revision for '#{revision}' on repository '#{repository}'." unless newrev =~ /^[0-9a-f]{40}$/
           return newrev
         end
@@ -245,7 +263,7 @@ module Capistrano
             unless pass = variable(:scm_password)
               pass = Capistrano::CLI.password_prompt
             end
-            "#{pass}\n"
+            %("#{pass}"\n)
           when %r{\(yes/no\)}
             # git is asking whether or not to connect
             "yes\n"
@@ -254,7 +272,7 @@ module Capistrano
             unless pass = variable(:scm_passphrase)
               pass = Capistrano::CLI.password_prompt
             end
-            "#{pass}\n"
+            %("#{pass}"\n)
           when /accept \(t\)emporarily/
             # git is asking whether to accept the certificate
             "t\n"
@@ -266,9 +284,10 @@ module Capistrano
           # If verbose output is requested, return nil, otherwise return the
           # command-line switch for "quiet" ("-q").
           def verbose
-            variable(:scm_verbose, true) ? "-q" : nil
+            variable(:scm_verbose) ? nil : "-q"
           end
       end
     end
   end
 end
+
